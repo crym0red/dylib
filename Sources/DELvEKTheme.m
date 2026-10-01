@@ -6,6 +6,25 @@
 static NSString * const kThemeHexKey = @"DELvEK.Theme.Hex";
 static NSInteger const kThemeManagerTag = 0xD3E1;
 
+static NSArray<UIWindow *> *DELActiveWindows(void) {
+    NSMutableArray<UIWindow *> *windows = [NSMutableArray array];
+    for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+        if (![scene isKindOfClass:[UIWindowScene class]]) continue;
+        if (scene.activationState == UISceneActivationStateUnattached) continue;
+        for (UIWindow *window in ((UIWindowScene *)scene).windows) {
+            if (!window.hidden && window.alpha > 0.0) [windows addObject:window];
+        }
+    }
+    return windows.copy;
+}
+
+static UIWindow *DELKeyWindow(void) {
+    for (UIWindow *window in DELActiveWindows()) {
+        if (window.isKeyWindow) return window;
+    }
+    return DELActiveWindows().firstObject;
+}
+
 static UIColor *DELColorFromHex(NSString *hex) {
     NSString *s = [[hex stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet] uppercaseString];
     if ([s hasPrefix:@"#"]) s = [s substringFromIndex:1];
@@ -111,11 +130,7 @@ static BOOL DELLooksLikeSettingsScreen(UIView *root) {
     return found;
 }
 
-@interface DELvEKThemeManagerHost : NSObject
-+ (instancetype)sharedHost;
-- (void)openThemeManager:(UIButton *)sender;
-@end
-
+// Theme-manager host is declared and implemented before DELAddThemeManagerFooter.
 @interface DELvEKThemeManagerViewController : UIViewController <UIColorPickerViewControllerDelegate>
 @property(nonatomic, strong) UIColorWell *well;
 @property(nonatomic, strong) UITextField *hexField;
@@ -205,13 +220,18 @@ static BOOL DELLooksLikeSettingsScreen(UIView *root) {
     [[NSUserDefaults standardUserDefaults] setObject:DELHexFromColor(color) forKey:kThemeHexKey];
     [self.view endEditing:YES];
 
-    for (UIWindow *window in UIApplication.sharedApplication.windows) {
+    for (UIWindow *window in DELActiveWindows()) {
         [DELvEKTheme applyAccentToViewHierarchy:window];
     }
 
     [self dismissViewControllerAnimated:YES completion:nil];
 }
 
+@end
+
+@interface DELvEKThemeManagerHost : NSObject
++ (instancetype)sharedHost;
+- (void)openThemeManager:(UIButton *)sender;
 @end
 
 @implementation DELvEKThemeManagerHost
@@ -223,9 +243,11 @@ static BOOL DELLooksLikeSettingsScreen(UIView *root) {
 }
 
 - (void)openThemeManager:(UIButton *)sender {
-    UIWindow *window = UIApplication.sharedApplication.keyWindow;
+    (void)sender;
+    UIWindow *window = DELKeyWindow();
     UIViewController *top = window.rootViewController;
     while (top.presentedViewController) top = top.presentedViewController;
+    if (!top) return;
 
     UINavigationController *navigation = [[UINavigationController alloc]
         initWithRootViewController:[DELvEKThemeManagerViewController new]];
@@ -323,7 +345,7 @@ static void DELvEKThemeInit(void) {
         }
 
         dispatch_async(dispatch_get_main_queue(), ^{
-            for (UIWindow *window in UIApplication.sharedApplication.windows) {
+            for (UIWindow *window in DELActiveWindows()) {
                 [DELvEKTheme applyAccentToViewHierarchy:window];
             }
         });
