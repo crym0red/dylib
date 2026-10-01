@@ -3,6 +3,9 @@
 #import <QuartzCore/QuartzCore.h>
 #import <math.h>
 
+static const void *kDELTopBarKey = &kDELTopBarKey;
+static const void *kDELSearchExpandedKey = &kDELSearchExpandedKey;
+
 static NSString * const kThemeHexKey = @"DELvEK.Theme.Hex";
 static NSInteger const kThemeManagerTag = 0xD3E1;
 
@@ -64,24 +67,27 @@ static UIColor *DELCurrentAccent(void) {
     return DELColorFromHex(hex ?: @"") ?: DELDefaultAccent();
 }
 
-static BOOL DELIsSystemBlue(UIColor *color) {
+static BOOL DELIsAccentCandidate(UIColor *color) {
     if (!color) return NO;
     CGFloat r = 0, g = 0, b = 0, a = 0;
     if (![color getRed:&r green:&g blue:&b alpha:&a]) return NO;
-    return (b > 0.60 && r < 0.30 && g > 0.20 && b > g * 1.05);
+    // Covers UIKit system blue plus the cyan/teal blue used by DELvEK.
+    BOOL blue = (b > 0.45 && b > r * 1.20 && b >= g * 0.90 && g > 0.20);
+    BOOL cyan = (g > 0.35 && b > 0.35 && r < 0.20 && fabs(g - b) < 0.35);
+    return blue || cyan;
 }
 
 static void DELApplyAccent(UIView *view, UIColor *accent) {
-    if (DELIsSystemBlue(view.tintColor)) view.tintColor = accent;
+    if (DELIsAccentCandidate(view.tintColor)) view.tintColor = accent;
 
     if ([view isKindOfClass:[UILabel class]]) {
         UILabel *label = (UILabel *)view;
-        if (DELIsSystemBlue(label.textColor)) label.textColor = accent;
+        if (DELIsAccentCandidate(label.textColor)) label.textColor = accent;
     }
 
     if ([view isKindOfClass:[UIButton class]]) {
         UIButton *button = (UIButton *)view;
-        if (DELIsSystemBlue(button.tintColor)) button.tintColor = accent;
+        if (DELIsAccentCandidate(button.tintColor)) button.tintColor = accent;
         if (@available(iOS 15.0, *)) {
             UIButtonConfiguration *configuration = button.configuration;
             if (configuration) {
@@ -93,7 +99,7 @@ static void DELApplyAccent(UIView *view, UIColor *accent) {
 
     if ([view isKindOfClass:[UISwitch class]]) {
         UISwitch *toggle = (UISwitch *)view;
-        if (toggle.onTintColor && DELIsSystemBlue(toggle.onTintColor)) {
+        if (toggle.onTintColor && DELIsAccentCandidate(toggle.onTintColor)) {
             toggle.onTintColor = accent;
         }
     }
@@ -101,7 +107,7 @@ static void DELApplyAccent(UIView *view, UIColor *accent) {
     CGColorRef border = view.layer.borderColor;
     if (border) {
         UIColor *borderColor = [UIColor colorWithCGColor:border];
-        if (DELIsSystemBlue(borderColor)) view.layer.borderColor = accent.CGColor;
+        if (DELIsAccentCandidate(borderColor)) view.layer.borderColor = accent.CGColor;
     }
 
     for (UIView *subview in view.subviews) {
@@ -128,6 +134,162 @@ static BOOL DELLooksLikeSettingsScreen(UIView *root) {
         [stack addObjectsFromArray:view.subviews];
     }
     return found;
+}
+
+
+@interface DELvEKTopBar : UIView
+@property(nonatomic, strong) UILabel *titleLabel;
+@property(nonatomic, strong) UIButton *searchButton;
+@property(nonatomic, strong) UIButton *historyButton;
+@property(nonatomic, strong) UIButton *downloadButton;
+@property(nonatomic, strong) UISearchBar *searchBar;
+@property(nonatomic, weak) UIViewController *owner;
+@property(nonatomic, assign) BOOL expanded;
+@property(nonatomic, strong) NSLayoutConstraint *heightConstraint;
+@end
+
+@implementation DELvEKTopBar
+
+- (instancetype)initWithOwner:(UIViewController *)owner {
+    self = [super initWithFrame:CGRectZero];
+    if (!self) return nil;
+    _owner = owner;
+    self.backgroundColor = UIColor.clearColor;
+    self.clipsToBounds = YES;
+    self.layer.zPosition = 10000;
+
+    UIView *bar = [UIView new];
+    bar.translatesAutoresizingMaskIntoConstraints = NO;
+    bar.backgroundColor = UIColor.clearColor;
+    [self addSubview:bar];
+
+    _titleLabel = [UILabel new];
+    _titleLabel.text = @"Home";
+    _titleLabel.textColor = UIColor.labelColor;
+    _titleLabel.font = [UIFont systemFontOfSize:26 weight:UIFontWeightSemibold];
+    _titleLabel.translatesAutoresizingMaskIntoConstraints = NO;
+    [bar addSubview:_titleLabel];
+
+    _searchButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    _historyButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    _downloadButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    NSArray *buttons = @[_searchButton, _historyButton, _downloadButton];
+    NSArray *symbols = @[@"magnifyingglass", @"clock", @"arrow.down.to.line"];
+    for (NSUInteger i = 0; i < buttons.count; i++) {
+        UIButton *button = buttons[i];
+        button.translatesAutoresizingMaskIntoConstraints = NO;
+        button.tintColor = DELCurrentAccent();
+        if (@available(iOS 13.0, *)) {
+            UIImageSymbolConfiguration *config = [UIImageSymbolConfiguration configurationWithPointSize:23 weight:UIImageSymbolWeightMedium];
+            [button setImage:[UIImage systemImageNamed:symbols[i] withConfiguration:config] forState:UIControlStateNormal];
+        }
+        [bar addSubview:button];
+    }
+    [_searchButton addTarget:self action:@selector(toggleSearch:) forControlEvents:UIControlEventTouchUpInside];
+
+    _searchBar = [UISearchBar new];
+    _searchBar.placeholder = @"Search";
+    _searchBar.searchBarStyle = UISearchBarStyleMinimal;
+    _searchBar.translatesAutoresizingMaskIntoConstraints = NO;
+    _searchBar.hidden = YES;
+    [self addSubview:_searchBar];
+
+    [NSLayoutConstraint activateConstraints:@[
+        [bar.topAnchor constraintEqualToAnchor:self.topAnchor],
+        [bar.leadingAnchor constraintEqualToAnchor:self.leadingAnchor],
+        [bar.trailingAnchor constraintEqualToAnchor:self.trailingAnchor],
+        [bar.heightAnchor constraintEqualToConstant:88],
+        [_titleLabel.leadingAnchor constraintEqualToAnchor:bar.leadingAnchor constant:18],
+        [_titleLabel.centerYAnchor constraintEqualToAnchor:bar.centerYAnchor constant:8],
+        [_downloadButton.trailingAnchor constraintEqualToAnchor:bar.trailingAnchor constant:-14],
+        [_downloadButton.centerYAnchor constraintEqualToAnchor:_titleLabel.centerYAnchor],
+        [_downloadButton.widthAnchor constraintEqualToConstant:44],
+        [_downloadButton.heightAnchor constraintEqualToConstant:44],
+        [_historyButton.trailingAnchor constraintEqualToAnchor:_downloadButton.leadingAnchor constant:-2],
+        [_historyButton.centerYAnchor constraintEqualToAnchor:_titleLabel.centerYAnchor],
+        [_historyButton.widthAnchor constraintEqualToConstant:44],
+        [_historyButton.heightAnchor constraintEqualToConstant:44],
+        [_searchButton.trailingAnchor constraintEqualToAnchor:_historyButton.leadingAnchor constant:-2],
+        [_searchButton.centerYAnchor constraintEqualToAnchor:_titleLabel.centerYAnchor],
+        [_searchButton.widthAnchor constraintEqualToConstant:44],
+        [_searchButton.heightAnchor constraintEqualToConstant:44],
+        [_searchBar.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:14],
+        [_searchBar.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-14],
+        [_searchBar.topAnchor constraintEqualToAnchor:bar.bottomAnchor],
+        [_searchBar.heightAnchor constraintEqualToConstant:56],
+    ]];
+    return self;
+}
+
+- (void)toggleSearch:(id)sender {
+    self.expanded = !self.expanded;
+    self.searchBar.hidden = !self.expanded;
+    self.heightConstraint.constant = self.expanded ? 144.0 : 88.0;
+    [UIView animateWithDuration:0.22 animations:^{
+        [self.superview layoutIfNeeded];
+    } completion:^(BOOL finished) {
+        if (self.expanded) [self.searchBar becomeFirstResponder];
+    }];
+    objc_setAssociatedObject(self.owner, kDELSearchExpandedKey, @(self.expanded), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+@end
+
+static BOOL DELLooksLikeHomeScreen(UIViewController *controller) {
+    UITabBarController *tabs = controller.tabBarController;
+    if (tabs && tabs.selectedViewController == controller) {
+        UITabBarItem *item = controller.tabBarItem;
+        if ([item.title.lowercaseString containsString:@"home"]) return YES;
+    }
+    __block BOOL found = NO;
+    NSMutableArray<UIView *> *stack = [NSMutableArray arrayWithObject:controller.view];
+    while (stack.count && !found) {
+        UIView *v = stack.lastObject;
+        [stack removeLastObject];
+        if ([v isKindOfClass:[UILabel class]]) {
+            NSString *t = [(UILabel *)v text].lowercaseString;
+            if ([t containsString:@"recommend"] || [t containsString:@"trending now"]) found = YES;
+        }
+        [stack addObjectsFromArray:v.subviews];
+    }
+    return found;
+}
+
+static void DELHideOriginalHomeTopControls(UIView *root) {
+    NSMutableArray<UIView *> *stack = [NSMutableArray arrayWithObject:root];
+    while (stack.count) {
+        UIView *view = stack.lastObject;
+        [stack removeLastObject];
+        CGRect f = [view convertRect:view.bounds toView:root];
+        if (f.origin.y < 160.0 && f.origin.y + f.size.height > 20.0) {
+            if ([view isKindOfClass:[UISearchBar class]] ||
+                [view isKindOfClass:[UITextField class]]) {
+                view.hidden = YES;
+            } else if ([view isKindOfClass:[UIButton class]]) {
+                // The original home header contains Search/History/Download controls.
+                // Keep the category labels and everything below the new top bar untouched.
+                view.hidden = YES;
+            }
+        }
+        [stack addObjectsFromArray:view.subviews];
+    }
+}
+
+static void DELInstallTopBar(UIViewController *controller) {
+    if (!DELLooksLikeHomeScreen(controller)) return;
+    if (objc_getAssociatedObject(controller, kDELTopBarKey)) return;
+
+    DELHideOriginalHomeTopControls(controller.view);
+    DELvEKTopBar *topBar = [[DELvEKTopBar alloc] initWithOwner:controller];
+    topBar.translatesAutoresizingMaskIntoConstraints = NO;
+    [controller.view addSubview:topBar];
+    topBar.heightConstraint = [topBar.heightAnchor constraintEqualToConstant:88];
+    [NSLayoutConstraint activateConstraints:@[
+        [topBar.leadingAnchor constraintEqualToAnchor:controller.view.leadingAnchor],
+        [topBar.trailingAnchor constraintEqualToAnchor:controller.view.trailingAnchor],
+        [topBar.topAnchor constraintEqualToAnchor:controller.view.topAnchor],
+        topBar.heightConstraint
+    ]];
+    objc_setAssociatedObject(controller, kDELTopBarKey, topBar, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
 // Theme-manager host is declared and implemented before DELAddThemeManagerFooter.
@@ -217,14 +379,26 @@ static BOOL DELLooksLikeSettingsScreen(UIView *root) {
         return;
     }
 
-    [[NSUserDefaults standardUserDefaults] setObject:DELHexFromColor(color) forKey:kThemeHexKey];
+    NSString *normalized = DELHexFromColor(color);
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    [defaults setObject:normalized forKey:kThemeHexKey];
+    [defaults synchronize];
     [self.view endEditing:YES];
+    self.well.selectedColor = color;
+    self.preview.backgroundColor = color;
+    self.hexField.text = normalized;
 
     for (UIWindow *window in DELActiveWindows()) {
         [DELvEKTheme applyAccentToViewHierarchy:window];
+        UIViewController *root = window.rootViewController;
+        [DELvEKTheme refreshTopBarForController:root];
     }
 
-    [self dismissViewControllerAnimated:YES completion:nil];
+    [self dismissViewControllerAnimated:YES completion:^{
+        for (UIWindow *window in DELActiveWindows()) {
+            [DELvEKTheme applyAccentToViewHierarchy:window];
+        }
+    }];
 }
 
 @end
@@ -300,6 +474,7 @@ static void DELHookedViewDidAppear(UIViewController *controller, SEL selector, B
 
     dispatch_async(dispatch_get_main_queue(), ^{
         [DELvEKTheme applyAccentToViewHierarchy:controller.view];
+        [DELvEKTheme refreshTopBarForController:controller];
         if (DELLooksLikeSettingsScreen(controller.view)) {
             UITableView *table = DELFindTableView(controller.view);
             if (table) DELAddThemeManagerFooter(table);
@@ -319,11 +494,46 @@ static void DELHookedViewDidLayoutSubviews(UIViewController *controller, SEL sel
     busy = NO;
 }
 
+
+static void DELRefreshAllWindows(void) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        for (UIWindow *window in DELActiveWindows()) {
+            UIViewController *root = window.rootViewController;
+            if (!root) continue;
+            [DELvEKTheme applyAccentToViewHierarchy:window];
+            [DELvEKTheme refreshTopBarForController:root];
+        }
+    });
+}
+
+static void DELWindowDidAppearNotification(NSNotification *note) {
+    (void)note;
+    DELRefreshAllWindows();
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        DELRefreshAllWindows();
+    });
+}
+
 @implementation DELvEKTheme
 + (UIColor *)accentColor { return DELCurrentAccent(); }
 + (void)applyAccentToViewHierarchy:(UIView *)view {
     if (!view) return;
     DELApplyAccent(view, DELCurrentAccent());
+}
++ (void)refreshTopBarForController:(UIViewController *)controller {
+    if (!controller) return;
+    DELInstallTopBar(controller);
+    DELvEKTopBar *bar = objc_getAssociatedObject(controller, kDELTopBarKey);
+    if (bar) {
+        UIColor *accent = DELCurrentAccent();
+        bar.searchButton.tintColor = accent;
+        bar.historyButton.tintColor = accent;
+        bar.downloadButton.tintColor = accent;
+        bar.titleLabel.textColor = UIColor.labelColor;
+    }
+    for (UIViewController *child in controller.childViewControllers) {
+        [self refreshTopBarForController:child];
+    }
 }
 @end
 
@@ -344,10 +554,14 @@ static void DELvEKThemeInit(void) {
             method_setImplementation(layout, (IMP)DELHookedViewDidLayoutSubviews);
         }
 
+        NSNotificationCenter *center = [NSNotificationCenter defaultCenter];
+        [center addObserverForName:UIApplicationDidBecomeActiveNotification object:nil queue:[NSOperationQueue mainQueue] usingBlock:DELWindowDidAppearNotification];
+        [center addObserverForName:UIWindowDidBecomeVisibleNotification object:nil queue:[NSOperationQueue mainQueue] usingBlock:DELWindowDidAppearNotification];
         dispatch_async(dispatch_get_main_queue(), ^{
-            for (UIWindow *window in DELActiveWindows()) {
-                [DELvEKTheme applyAccentToViewHierarchy:window];
-            }
+            DELRefreshAllWindows();
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.75 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                DELRefreshAllWindows();
+            });
         });
     }
 }

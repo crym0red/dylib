@@ -1,33 +1,19 @@
-# DELvEK Theme dylib
+# DELvEK Theme + Custom Home Top Bar
 
-Standalone Objective-C/UIKit iOS dylib for the DELvEK/KayakTime UI customization project.
+This project builds an Objective-C iOS arm64 dynamic library for the DELvEK app.
 
 ## Features
 
-- Default accent: `#34C759` (Apple green).
-- Recolors UIKit elements that are already using a blue accent.
-- Adds a Theme Manager to the detected settings table.
-- Native `UIColorWell` / `UIColorPickerViewController` color wheel.
-- HEX color entry and persistent selection via `NSUserDefaults`.
-- Does not replace the application's existing screens or content.
+- Default accent: `#34C759` (green)
+- Runtime accent recoloring for the existing blue/cyan UI accents
+- Settings footer entry: **Theme Manager**
+- Native `UIColorWell` / color wheel
+- HEX color entry and persistent save using `NSUserDefaults`
+- Immediate accent refresh after saving
+- Custom Home top bar: title on the left, Search / History / Download icons on the right
+- Tapping Search expands a search field underneath the custom top bar
+- Existing content below the top bar is left alone
 
 ## GitHub Actions
 
-`.github/workflows/build-dylib.yml` builds an arm64 iOS dylib on a macOS GitHub runner and uploads `DELvEKTheme-dylib.zip`.
-
-The workflow uses the runner's installed stable Xcode rather than pinning a potentially unavailable Xcode version.
-
-## Local build
-
-```sh
-make clean
-make
-```
-
-Output:
-
-```text
-build/DELvEKTheme.dylib
-```
-
-This project only builds the component. Loading/injection and signing remain separate steps in the app's existing build/install process.
+`.github/workflows/build-dylib.yml` builds an arm64 iOS dylib on `macos-latest` and uploads `DELvEKTheme-dylib.zip`.
