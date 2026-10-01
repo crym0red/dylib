@@ -1,26 +1,29 @@
-SDKROOT := $(shell xcrun --sdk iphoneos --show-sdk-path)
-CC := xcrun --sdk iphoneos clang
-CFLAGS := -fobjc-arc -fmodules -O2 -Wall -Wextra -Wno-unused-parameter \
-          -isysroot "$(SDKROOT)" -miphoneos-version-min=15.0
-FRAMEWORKS := -framework Foundation -framework UIKit -framework QuartzCore
+SDK := iphoneos
+SDKROOT := $(shell xcrun --sdk $(SDK) --show-sdk-path)
+CC := xcrun --sdk $(SDK) clang
+ARCHS := arm64
+MIN_IOS := 15.0
+CFLAGS := -arch $(ARCHS) -fobjc-arc -fmodules -O2 -Wall -Wextra -Wno-deprecated-declarations -Wno-unused-parameter \
+          -isysroot "$(SDKROOT)" -miphoneos-version-min=$(MIN_IOS)
+LDFLAGS := -dynamiclib -framework Foundation -framework UIKit -framework QuartzCore \
+           -install_name @rpath/DELvEKTheme.dylib -current_version 1.0.0 -compatibility_version 1.0.0
 
 BUILD := build
 TARGET := $(BUILD)/DELvEKTheme.dylib
 SRC := Sources/DELvEKTheme.m
+HDR := Sources/DELvEKTheme.h
 
 .PHONY: all clean
 
 all: $(TARGET)
 
 $(BUILD):
-	mkdir -p $(BUILD)
+	mkdir -p "$@"
 
-$(TARGET): $(SRC) Sources/DELvEKTheme.h | $(BUILD)
-	$(CC) $(CFLAGS) -dynamiclib $(SRC) $(FRAMEWORKS) \
-		-install_name @rpath/DELvEKTheme.dylib \
-		-current_version 1.0 -compatibility_version 1.0 \
-		-o "$@"
-	xcrun --sdk iphoneos lipo "$@" -info
+$(TARGET): $(SRC) $(HDR) | $(BUILD)
+	$(CC) $(CFLAGS) $(LDFLAGS) $(SRC) -o "$@"
+	file "$@"
+	xcrun lipo -info "$@"
 
 clean:
-	rm -rf $(BUILD)
+	rm -rf "$(BUILD)"

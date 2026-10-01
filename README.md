@@ -1,36 +1,33 @@
 # DELvEK Theme dylib
 
-A small Objective-C/UIKit runtime customization dylib for the DELvEK/KayakTime UI.
+Standalone Objective-C/UIKit iOS dylib for the DELvEK/KayakTime UI customization project.
 
-## What it does
+## Features
 
-- Default accent is Apple green `#34C759`.
-- Recolors UIKit elements that are already using the app's blue accent.
-- Adds a **Theme Manager** control to the settings table footer.
-- Theme Manager provides:
-  - native iOS color wheel (`UIColorWell` / `UIColorPickerViewController`)
-  - HEX entry
-  - live preview
-  - persistent theme color using `NSUserDefaults`
-- Does not rebuild the app's existing content screens.
-- Uses Objective-C runtime hooks on `UIViewController` lifecycle/layout methods.
+- Default accent: `#34C759` (Apple green).
+- Recolors UIKit elements that are already using a blue accent.
+- Adds a Theme Manager to the detected settings table.
+- Native `UIColorWell` / `UIColorPickerViewController` color wheel.
+- HEX color entry and persistent selection via `NSUserDefaults`.
+- Does not replace the application's existing screens or content.
 
-## Build
+## GitHub Actions
 
-Run on macOS with Xcode:
+`.github/workflows/build-dylib.yml` builds an arm64 iOS dylib on a macOS GitHub runner and uploads `DELvEKTheme-dylib.zip`.
+
+The workflow uses the runner's installed stable Xcode rather than pinning a potentially unavailable Xcode version.
+
+## Local build
 
 ```sh
+make clean
 make
 ```
 
-The output is:
+Output:
 
 ```text
 build/DELvEKTheme.dylib
 ```
 
-GitHub Actions builds the same dylib and uploads it as `DELvEKTheme-dylib`.
-
-## Integration
-
-The dylib is intentionally built as a standalone native component. Your existing app/injection workflow can package and load it using the mechanism already used by your project. The dylib itself does not contain signing credentials or attempt to bypass code-signing controls.
+This project only builds the component. Loading/injection and signing remain separate steps in the app's existing build/install process.

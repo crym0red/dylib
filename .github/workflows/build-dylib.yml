@@ -7,12 +7,18 @@ on:
       - "Sources/**"
       - "Makefile"
       - ".github/workflows/build-dylib.yml"
+  pull_request:
+    paths:
+      - "Sources/**"
+      - "Makefile"
+      - ".github/workflows/build-dylib.yml"
 
 permissions:
   contents: read
 
 jobs:
   build:
+    name: Build iOS arm64 dylib
     runs-on: macos-latest
     steps:
       - name: Checkout
@@ -21,27 +27,33 @@ jobs:
       - name: Select Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: "26.6.0"
+          xcode-version: latest-stable
 
-      - name: Build dylib
-        shell: bash
+      - name: Verify toolchain
         run: |
           set -euo pipefail
           xcodebuild -version
-          make clean
-          make
-          file build/DELvEKTheme.dylib
-          xcrun --sdk iphoneos lipo -info build/DELvEKTheme.dylib
+          xcrun --sdk iphoneos --show-sdk-version
+          xcrun --sdk iphoneos clang --version
 
-      - name: Package
-        shell: bash
+      - name: Build
         run: |
           set -euo pipefail
+          make clean
+          make
+          test -f build/DELvEKTheme.dylib
+          file build/DELvEKTheme.dylib
+          xcrun lipo -info build/DELvEKTheme.dylib
+          xcrun otool -l build/DELvEKTheme.dylib | grep -A5 LC_BUILD_VERSION || true
+
+      - name: Package artifact
+        run: |
+          set -euo pipefail
+          rm -rf artifact
           mkdir -p artifact/DELvEKTheme
           cp build/DELvEKTheme.dylib artifact/DELvEKTheme/
           cp -R Sources artifact/DELvEKTheme/
-          cp Makefile artifact/DELvEKTheme/
-          cp README.md artifact/DELvEKTheme/
+          cp Makefile README.md artifact/DELvEKTheme/
           cd artifact
           zip -qry DELvEKTheme-dylib.zip DELvEKTheme
 

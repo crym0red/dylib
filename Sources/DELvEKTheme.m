@@ -1,13 +1,13 @@
 #import "DELvEKTheme.h"
 #import <objc/runtime.h>
 #import <QuartzCore/QuartzCore.h>
+#import <math.h>
 
 static NSString * const kThemeHexKey = @"DELvEK.Theme.Hex";
-static NSString * const kThemeManagerTag = @"DELvEKThemeManager";
+static NSInteger const kThemeManagerTag = 0xD3E1;
 
-static UIColor *ColorFromHex(NSString *hex) {
-    NSString *s = [[hex stringByTrimmingCharactersInSet:
-                    [NSCharacterSet whitespaceAndNewlineCharacterSet]] uppercaseString];
+static UIColor *DELColorFromHex(NSString *hex) {
+    NSString *s = [[hex stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet] uppercaseString];
     if ([s hasPrefix:@"#"]) s = [s substringFromIndex:1];
     if (s.length != 6 && s.length != 8) return nil;
 
@@ -15,90 +15,89 @@ static UIColor *ColorFromHex(NSString *hex) {
     NSScanner *scanner = [NSScanner scannerWithString:s];
     if (![scanner scanHexInt:&value]) return nil;
 
-    CGFloat r = ((value >> (s.length == 8 ? 24 : 16)) & 0xFF) / 255.0;
-    CGFloat g = ((value >> (s.length == 8 ? 16 : 8)) & 0xFF) / 255.0;
-    CGFloat b = ((value >> (s.length == 8 ? 8 : 0)) & 0xFF) / 255.0;
-    CGFloat a = (s.length == 8 ? (value & 0xFF) : 0xFF) / 255.0;
+    BOOL hasAlpha = (s.length == 8);
+    CGFloat r = ((value >> (hasAlpha ? 24 : 16)) & 0xFF) / 255.0;
+    CGFloat g = ((value >> (hasAlpha ? 16 : 8)) & 0xFF) / 255.0;
+    CGFloat b = ((value >> (hasAlpha ? 8 : 0)) & 0xFF) / 255.0;
+    CGFloat a = hasAlpha ? (value & 0xFF) / 255.0 : 1.0;
     return [UIColor colorWithRed:r green:g blue:b alpha:a];
 }
 
-static NSString *HexFromColor(UIColor *color) {
-    CGFloat r=0,g=0,b=0,a=0;
+static NSString *DELHexFromColor(UIColor *color) {
+    CGFloat r = 0, g = 0, b = 0, a = 0;
     if (![color getRed:&r green:&g blue:&b alpha:&a]) {
-        CGFloat w=0;
-        if ([color getWhite:&w alpha:&a]) r=g=b=w;
+        CGFloat w = 0;
+        if ([color getWhite:&w alpha:&a]) r = g = b = w;
         else return @"#34C759";
     }
     return [NSString stringWithFormat:@"#%02X%02X%02X",
-            (int)lrintf(r*255), (int)lrintf(g*255), (int)lrintf(b*255)];
+            (unsigned)lrintf(r * 255.0f),
+            (unsigned)lrintf(g * 255.0f),
+            (unsigned)lrintf(b * 255.0f)];
 }
 
-static UIColor *DefaultAccent(void) {
+static UIColor *DELDefaultAccent(void) {
     return [UIColor colorWithRed:52.0/255.0 green:199.0/255.0 blue:89.0/255.0 alpha:1.0];
 }
 
-static UIColor *CurrentAccent(void) {
+static UIColor *DELCurrentAccent(void) {
     NSString *hex = [[NSUserDefaults standardUserDefaults] stringForKey:kThemeHexKey];
-    UIColor *c = ColorFromHex(hex ?: @"");
-    return c ?: DefaultAccent();
+    return DELColorFromHex(hex ?: @"") ?: DELDefaultAccent();
 }
 
-static BOOL IsCloseToSystemBlue(UIColor *color) {
+static BOOL DELIsSystemBlue(UIColor *color) {
     if (!color) return NO;
-    CGFloat r=0,g=0,b=0,a=0;
+    CGFloat r = 0, g = 0, b = 0, a = 0;
     if (![color getRed:&r green:&g blue:&b alpha:&a]) return NO;
-    // Match common UIKit system-blue tinting without touching arbitrary app colors.
-    return (b > 0.65 && r < 0.25 && g > 0.25 && b > g * 1.05);
+    return (b > 0.60 && r < 0.30 && g > 0.20 && b > g * 1.05);
 }
 
-static void ApplyAccent(UIView *view, UIColor *accent) {
-    if (IsCloseToSystemBlue(view.tintColor)) {
-        view.tintColor = accent;
-    }
+static void DELApplyAccent(UIView *view, UIColor *accent) {
+    if (DELIsSystemBlue(view.tintColor)) view.tintColor = accent;
 
     if ([view isKindOfClass:[UILabel class]]) {
         UILabel *label = (UILabel *)view;
-        if (IsCloseToSystemBlue(label.textColor)) label.textColor = accent;
+        if (DELIsSystemBlue(label.textColor)) label.textColor = accent;
     }
 
     if ([view isKindOfClass:[UIButton class]]) {
         UIButton *button = (UIButton *)view;
-        if (IsCloseToSystemBlue(button.tintColor)) button.tintColor = accent;
+        if (DELIsSystemBlue(button.tintColor)) button.tintColor = accent;
         if (@available(iOS 15.0, *)) {
-            UIButtonConfiguration *cfg = button.configuration;
-            if (cfg) {
-                cfg.baseForegroundColor = accent;
-                button.configuration = cfg;
+            UIButtonConfiguration *configuration = button.configuration;
+            if (configuration) {
+                configuration.baseForegroundColor = accent;
+                button.configuration = configuration;
             }
         }
     }
 
     if ([view isKindOfClass:[UISwitch class]]) {
-        UISwitch *sw = (UISwitch *)view;
-        sw.onTintColor = accent;
-        sw.thumbTintColor = sw.thumbTintColor;
+        UISwitch *toggle = (UISwitch *)view;
+        if (toggle.onTintColor && DELIsSystemBlue(toggle.onTintColor)) {
+            toggle.onTintColor = accent;
+        }
     }
 
     CGColorRef border = view.layer.borderColor;
     if (border) {
         UIColor *borderColor = [UIColor colorWithCGColor:border];
-        if (IsCloseToSystemBlue(borderColor)) view.layer.borderColor = accent.CGColor;
+        if (DELIsSystemBlue(borderColor)) view.layer.borderColor = accent.CGColor;
     }
 
     for (UIView *subview in view.subviews) {
-        ApplyAccent(subview, accent);
+        DELApplyAccent(subview, accent);
     }
 }
 
-static BOOL ContainsSettingsText(UIView *root) {
+static BOOL DELLooksLikeSettingsScreen(UIView *root) {
     __block BOOL found = NO;
     NSMutableArray<UIView *> *stack = [NSMutableArray arrayWithObject:root];
     while (stack.count && !found) {
-        UIView *v = stack.lastObject;
+        UIView *view = stack.lastObject;
         [stack removeLastObject];
-
-        if ([v isKindOfClass:[UILabel class]]) {
-            NSString *text = [(UILabel *)v text].lowercaseString;
+        if ([view isKindOfClass:[UILabel class]]) {
+            NSString *text = [(UILabel *)view text].lowercaseString;
             if ([text containsString:@"language switching"] ||
                 [text isEqualToString:@"settings"] ||
                 [text containsString:@"my favorites"] ||
@@ -107,86 +106,82 @@ static BOOL ContainsSettingsText(UIView *root) {
                 break;
             }
         }
-        [stack addObjectsFromArray:v.subviews];
+        [stack addObjectsFromArray:view.subviews];
     }
     return found;
 }
 
-@class DELvEKThemeManagerHost;
+@interface DELvEKThemeManagerHost : NSObject
++ (instancetype)sharedHost;
+- (void)openThemeManager:(UIButton *)sender;
+@end
 
 @interface DELvEKThemeManagerViewController : UIViewController <UIColorPickerViewControllerDelegate>
-@property(nonatomic,strong) UIColorWell *well;
-@property(nonatomic,strong) UITextField *hexField;
-@property(nonatomic,strong) UIView *preview;
+@property(nonatomic, strong) UIColorWell *well;
+@property(nonatomic, strong) UITextField *hexField;
+@property(nonatomic, strong) UIView *preview;
 @end
 
 @implementation DELvEKThemeManagerViewController
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.view.backgroundColor = [UIColor systemBackgroundColor];
+    self.view.backgroundColor = UIColor.systemBackgroundColor;
     self.title = @"Theme Manager";
 
-    UILabel *title = [[UILabel alloc] init];
+    UILabel *title = [UILabel new];
     title.text = @"Accent color";
     title.font = [UIFont preferredFontForTextStyle:UIFontTextStyleHeadline];
-    title.translatesAutoresizingMaskIntoConstraints = NO;
 
-    self.well = [[UIColorWell alloc] init];
-    self.well.selectedColor = CurrentAccent();
-    self.well.translatesAutoresizingMaskIntoConstraints = NO;
+    self.well = [UIColorWell new];
+    self.well.selectedColor = DELCurrentAccent();
     [self.well addTarget:self action:@selector(colorChanged:) forControlEvents:UIControlEventValueChanged];
 
-    self.hexField = [[UITextField alloc] init];
-    self.hexField.text = HexFromColor(CurrentAccent());
+    self.hexField = [UITextField new];
+    self.hexField.text = DELHexFromColor(DELCurrentAccent());
     self.hexField.placeholder = @"#34C759";
     self.hexField.borderStyle = UITextBorderStyleRoundedRect;
     self.hexField.autocorrectionType = UITextAutocorrectionTypeNo;
     self.hexField.autocapitalizationType = UITextAutocapitalizationTypeAllCharacters;
-    self.hexField.translatesAutoresizingMaskIntoConstraints = NO;
     self.hexField.returnKeyType = UIReturnKeyDone;
 
     UIButton *picker = [UIButton buttonWithType:UIButtonTypeSystem];
     [picker setTitle:@"Open color wheel" forState:UIControlStateNormal];
-    picker.translatesAutoresizingMaskIntoConstraints = NO;
     [picker addTarget:self action:@selector(openPicker:) forControlEvents:UIControlEventTouchUpInside];
 
     UIButton *save = [UIButton buttonWithType:UIButtonTypeSystem];
     [save setTitle:@"Save theme" forState:UIControlStateNormal];
     save.titleLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleHeadline];
-    save.translatesAutoresizingMaskIntoConstraints = NO;
     [save addTarget:self action:@selector(saveTheme:) forControlEvents:UIControlEventTouchUpInside];
 
-    self.preview = [[UIView alloc] init];
-    self.preview.layer.cornerRadius = 14;
-    self.preview.backgroundColor = CurrentAccent();
-    self.preview.translatesAutoresizingMaskIntoConstraints = NO;
+    self.preview = [UIView new];
+    self.preview.layer.cornerRadius = 14.0;
+    self.preview.backgroundColor = DELCurrentAccent();
 
-    UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:
-                          @[title, self.well, self.hexField, picker, self.preview, save]];
+    UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[
+        title, self.well, self.hexField, picker, self.preview, save
+    ]];
     stack.axis = UILayoutConstraintAxisVertical;
-    stack.spacing = 18;
-    stack.alignment = UIStackViewAlignmentFill;
+    stack.spacing = 18.0;
     stack.translatesAutoresizingMaskIntoConstraints = NO;
 
     [self.view addSubview:stack];
-
     [NSLayoutConstraint activateConstraints:@[
-        [stack.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor constant:24],
-        [stack.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor constant:-24],
-        [stack.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor constant:24],
-        [self.preview.heightAnchor constraintEqualToConstant:72]
+        [stack.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor constant:24.0],
+        [stack.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor constant:-24.0],
+        [stack.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor constant:24.0],
+        [self.preview.heightAnchor constraintEqualToConstant:72.0]
     ]];
 }
 
 - (void)colorChanged:(UIColorWell *)sender {
     self.preview.backgroundColor = sender.selectedColor;
-    self.hexField.text = HexFromColor(sender.selectedColor);
+    self.hexField.text = DELHexFromColor(sender.selectedColor);
 }
 
 - (void)openPicker:(id)sender {
-    UIColorPickerViewController *picker = [[UIColorPickerViewController alloc] init];
-    picker.selectedColor = self.well.selectedColor ?: CurrentAccent();
+    UIColorPickerViewController *picker = [UIColorPickerViewController new];
+    picker.selectedColor = self.well.selectedColor ?: DELCurrentAccent();
     picker.delegate = self;
     [self presentViewController:picker animated:YES completion:nil];
 }
@@ -197,35 +192,53 @@ static BOOL ContainsSettingsText(UIView *root) {
 }
 
 - (void)saveTheme:(id)sender {
-    UIColor *color = ColorFromHex(self.hexField.text);
+    UIColor *color = DELColorFromHex(self.hexField.text ?: @"");
     if (!color) {
-        UIAlertController *a = [UIAlertController alertControllerWithTitle:@"Invalid HEX"
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Invalid HEX"
             message:@"Enter a color such as #34C759."
             preferredStyle:UIAlertControllerStyleAlert];
-        [a addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
-        [self presentViewController:a animated:YES completion:nil];
+        [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
+        [self presentViewController:alert animated:YES completion:nil];
         return;
     }
 
-    [[NSUserDefaults standardUserDefaults] setObject:HexFromColor(color) forKey:kThemeHexKey];
-    [[NSUserDefaults standardUserDefaults] synchronize];
+    [[NSUserDefaults standardUserDefaults] setObject:DELHexFromColor(color) forKey:kThemeHexKey];
+    [self.view endEditing:YES];
 
     for (UIWindow *window in UIApplication.sharedApplication.windows) {
         [DELvEKTheme applyAccentToViewHierarchy:window];
     }
 
-    [self.navigationController popViewControllerAnimated:YES];
+    [self dismissViewControllerAnimated:YES completion:nil];
 }
 
 @end
 
-static void AddThemeManagerFooter(UITableView *tableView) {
-    if ([tableView viewWithTag:0xD3E1]) return;
+@implementation DELvEKThemeManagerHost
++ (instancetype)sharedHost {
+    static DELvEKThemeManagerHost *host;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{ host = [DELvEKThemeManagerHost new]; });
+    return host;
+}
 
-    UIView *footer = [[UIView alloc] initWithFrame:CGRectMake(0, 0, tableView.bounds.size.width, 74)];
+- (void)openThemeManager:(UIButton *)sender {
+    UIWindow *window = UIApplication.sharedApplication.keyWindow;
+    UIViewController *top = window.rootViewController;
+    while (top.presentedViewController) top = top.presentedViewController;
+
+    UINavigationController *navigation = [[UINavigationController alloc]
+        initWithRootViewController:[DELvEKThemeManagerViewController new]];
+    [top presentViewController:navigation animated:YES completion:nil];
+}
+@end
+
+static void DELAddThemeManagerFooter(UITableView *tableView) {
+    if ([tableView viewWithTag:kThemeManagerTag]) return;
+
+    UIView *footer = [[UIView alloc] initWithFrame:CGRectMake(0, 0, tableView.bounds.size.width, 74.0)];
     UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
-    button.tag = 0xD3E1;
-    button.accessibilityIdentifier = kThemeManagerTag;
+    button.tag = kThemeManagerTag;
     [button setTitle:@"Theme Manager" forState:UIControlStateNormal];
     button.titleLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleHeadline];
     button.translatesAutoresizingMaskIntoConstraints = NO;
@@ -237,7 +250,7 @@ static void AddThemeManagerFooter(UITableView *tableView) {
     [NSLayoutConstraint activateConstraints:@[
         [button.centerXAnchor constraintEqualToAnchor:footer.centerXAnchor],
         [button.centerYAnchor constraintEqualToAnchor:footer.centerYAnchor],
-        [button.heightAnchor constraintEqualToConstant:48]
+        [button.heightAnchor constraintEqualToConstant:48.0]
     ]];
 
     tableView.tableFooterView = footer;
@@ -246,91 +259,68 @@ static void AddThemeManagerFooter(UITableView *tableView) {
     });
 }
 
-@interface DELvEKThemeManagerHost : NSObject
-+ (instancetype)sharedHost;
-- (void)openThemeManager:(UIButton *)sender;
-@end
-
-@implementation DELvEKThemeManagerHost
-+ (instancetype)sharedHost {
-    static DELvEKThemeManagerHost *host;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{ host = [DELvEKThemeManagerHost new]; });
-    return host;
-}
-- (void)openThemeManager:(UIButton *)sender {
-    UIViewController *root = UIApplication.sharedApplication.keyWindow.rootViewController;
-    UIViewController *top = root;
-    while (top.presentedViewController) top = top.presentedViewController;
-
-    DELvEKThemeManagerViewController *theme = [DELvEKThemeManagerViewController new];
-    UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:theme];
-    [top presentViewController:nav animated:YES completion:nil];
-}
-@end
-
-@implementation DELvEKTheme
-
-+ (UIColor *)accentColor {
-    return CurrentAccent();
+static UITableView *DELFindTableView(UIView *root) {
+    if ([root isKindOfClass:[UITableView class]]) return (UITableView *)root;
+    for (UIView *subview in root.subviews) {
+        UITableView *table = DELFindTableView(subview);
+        if (table) return table;
+    }
+    return nil;
 }
 
-+ (void)applyAccentToViewHierarchy:(UIView *)view {
-    ApplyAccent(view, CurrentAccent());
-}
+static IMP DELOriginalViewDidAppear = NULL;
+static IMP DELOriginalViewDidLayoutSubviews = NULL;
 
-@end
-
-#pragma mark - Runtime hooks
-
-static IMP orig_viewDidAppear = NULL;
-static IMP orig_viewDidLayoutSubviews = NULL;
-
-static void hooked_viewDidAppear(UIViewController *self, SEL _cmd, BOOL animated) {
-    ((void(*)(id,SEL,BOOL))orig_viewDidAppear)(self,_cmd,animated);
+static void DELHookedViewDidAppear(UIViewController *controller, SEL selector, BOOL animated) {
+    if (DELOriginalViewDidAppear) {
+        ((void(*)(id, SEL, BOOL))DELOriginalViewDidAppear)(controller, selector, animated);
+    }
 
     dispatch_async(dispatch_get_main_queue(), ^{
-        [DELvEKTheme applyAccentToViewHierarchy:self.view];
-
-        if (ContainsSettingsText(self.view)) {
-            for (UIView *v in self.view.subviews) {
-                if ([v isKindOfClass:[UITableView class]]) {
-                    AddThemeManagerFooter((UITableView *)v);
-                }
-                for (UIView *sub in v.subviews) {
-                    if ([sub isKindOfClass:[UITableView class]]) {
-                        AddThemeManagerFooter((UITableView *)sub);
-                    }
-                }
-            }
+        [DELvEKTheme applyAccentToViewHierarchy:controller.view];
+        if (DELLooksLikeSettingsScreen(controller.view)) {
+            UITableView *table = DELFindTableView(controller.view);
+            if (table) DELAddThemeManagerFooter(table);
         }
     });
 }
 
-static void hooked_viewDidLayoutSubviews(UIViewController *self, SEL _cmd) {
-    ((void(*)(id,SEL))orig_viewDidLayoutSubviews)(self,_cmd);
+static void DELHookedViewDidLayoutSubviews(UIViewController *controller, SEL selector) {
+    if (DELOriginalViewDidLayoutSubviews) {
+        ((void(*)(id, SEL))DELOriginalViewDidLayoutSubviews)(controller, selector);
+    }
 
     static __thread BOOL busy = NO;
     if (busy) return;
     busy = YES;
-    [DELvEKTheme applyAccentToViewHierarchy:self.view];
+    [DELvEKTheme applyAccentToViewHierarchy:controller.view];
     busy = NO;
 }
+
+@implementation DELvEKTheme
++ (UIColor *)accentColor { return DELCurrentAccent(); }
++ (void)applyAccentToViewHierarchy:(UIView *)view {
+    if (!view) return;
+    DELApplyAccent(view, DELCurrentAccent());
+}
+@end
 
 __attribute__((constructor))
 static void DELvEKThemeInit(void) {
     @autoreleasepool {
         Class cls = [UIViewController class];
 
-        SEL appear = @selector(viewDidAppear:);
-        Method appearMethod = class_getInstanceMethod(cls, appear);
-        orig_viewDidAppear = method_getImplementation(appearMethod);
-        method_setImplementation(appearMethod, (IMP)hooked_viewDidAppear);
+        Method appear = class_getInstanceMethod(cls, @selector(viewDidAppear:));
+        if (appear) {
+            DELOriginalViewDidAppear = method_getImplementation(appear);
+            method_setImplementation(appear, (IMP)DELHookedViewDidAppear);
+        }
 
-        SEL layout = @selector(viewDidLayoutSubviews);
-        Method layoutMethod = class_getInstanceMethod(cls, layout);
-        orig_viewDidLayoutSubviews = method_getImplementation(layoutMethod);
-        method_setImplementation(layoutMethod, (IMP)hooked_viewDidLayoutSubviews);
+        Method layout = class_getInstanceMethod(cls, @selector(viewDidLayoutSubviews));
+        if (layout) {
+            DELOriginalViewDidLayoutSubviews = method_getImplementation(layout);
+            method_setImplementation(layout, (IMP)DELHookedViewDidLayoutSubviews);
+        }
 
         dispatch_async(dispatch_get_main_queue(), ^{
             for (UIWindow *window in UIApplication.sharedApplication.windows) {
