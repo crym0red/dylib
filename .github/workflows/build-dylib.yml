@@ -1,0 +1,53 @@
+name: Build DELvEK Theme dylib
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "Sources/**"
+      - "Makefile"
+      - ".github/workflows/build-dylib.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "26.6.0"
+
+      - name: Build dylib
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          make clean
+          make
+          file build/DELvEKTheme.dylib
+          xcrun --sdk iphoneos lipo -info build/DELvEKTheme.dylib
+
+      - name: Package
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifact/DELvEKTheme
+          cp build/DELvEKTheme.dylib artifact/DELvEKTheme/
+          cp -R Sources artifact/DELvEKTheme/
+          cp Makefile artifact/DELvEKTheme/
+          cp README.md artifact/DELvEKTheme/
+          cd artifact
+          zip -qry DELvEKTheme-dylib.zip DELvEKTheme
+
+      - name: Upload dylib
+        uses: actions/upload-artifact@v4
+        with:
+          name: DELvEKTheme-dylib
+          path: artifact/DELvEKTheme-dylib.zip
+          if-no-files-found: error
